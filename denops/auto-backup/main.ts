@@ -123,7 +123,7 @@ export const main = async (denops: Denops): Promise<void> => {
     async getBackupDir(filePath: unknown): Promise<string> {
       assert(filePath, is.String)
       const relativePath = gitRoot ? path.relative(gitRoot, filePath) : path.relative(cwd, filePath)
-      return createBackupPath(relativePath, "")
+      return await Promise.resolve(createBackupPath(relativePath, ""))
     },
   }
 }

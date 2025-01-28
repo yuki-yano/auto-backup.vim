@@ -35,8 +35,13 @@ const performBackup = async (filePath: string, buffer: string): Promise<void> =>
   const backupPath = createBackupPath(filePath, dayjsJST().format("YYYY-MM-DD_HH:mm"))
   const backupDir = path.dirname(backupPath)
 
-  fs.ensureDirSync(backupDir)
-  await Deno.writeTextFile(backupPath, buffer)
+  try {
+    fs.ensureDirSync(backupDir)
+    await Deno.writeTextFile(backupPath, buffer)
+  } catch (error) {
+    console.error(`Failed to perform backup: ${error}`)
+    throw error
+  }
 }
 
 const findLastBackup = async (relativePath: string): Promise<string | undefined> => {
@@ -79,6 +84,7 @@ const initLastBackup = async (relativePath: string): Promise<void> => {
 const handleBackup = async (denops: Denops, filePath: string, cwd: string): Promise<void> => {
   if (!fs.existsSync(filePath)) return
   if (!containsHomeDir(filePath)) return
+  if (gitRoot && !filePath.startsWith(gitRoot)) return
   if (await fn.getbufvar(denops, "%", "&modifiable") === 0) return
 
   const relativePath = gitRoot ? path.relative(gitRoot, filePath) : path.relative(cwd, filePath)

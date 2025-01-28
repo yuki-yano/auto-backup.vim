@@ -1,4 +1,4 @@
-import { assert, fs, is, path, Semaphore, vars } from "./deps.ts"
+import { assert, fn, fs, is, path, Semaphore, vars } from "./deps.ts"
 import type { Denops } from "./deps.ts"
 
 import { dayjsJST } from "./dayjs.ts"
@@ -31,19 +31,16 @@ const createBackupPath = (relativePath: string, date: string): string => {
   return path.join(baseDir, relativePath, date)
 }
 
-const performBackup = async (filePath: string, relativePath: string): Promise<void> => {
-  if (!fs.existsSync(filePath)) return
-
-  const backupPath = createBackupPath(relativePath, dayjsJST().format("YYYY-MM-DD_HH:mm"))
+const performBackup = async (filePath: string, buffer: string): Promise<void> => {
+  const backupPath = createBackupPath(filePath, dayjsJST().format("YYYY-MM-DD_HH:mm"))
   const backupDir = path.dirname(backupPath)
 
   fs.ensureDirSync(backupDir)
-  await fs.copy(filePath, backupPath, { overwrite: true })
+  await Deno.writeTextFile(backupPath, buffer)
 }
 
 const findLastBackup = async (relativePath: string): Promise<string | undefined> => {
-  const backupBasePath = createBackupPath(relativePath, "")
-  const backupDir = path.dirname(backupBasePath)
+  const backupDir = createBackupPath(relativePath, "")
 
   if (!fs.existsSync(backupDir)) return undefined
 
@@ -62,7 +59,7 @@ const findLastBackup = async (relativePath: string): Promise<string | undefined>
     .sort((a, b) => (b.mtime?.getTime() ?? 0) - (a.mtime?.getTime() ?? 0))[0]?.path
 }
 
-const initializeFileContent = async (relativePath: string): Promise<void> => {
+const initLastBackup = async (relativePath: string): Promise<void> => {
   const lastBackupPath = await findLastBackup(relativePath)
 
   if (!lastBackupPath) {
@@ -79,32 +76,49 @@ const initializeFileContent = async (relativePath: string): Promise<void> => {
   }
 }
 
-const handleBackup = async (filePath: string, cwd: string): Promise<void> => {
+const handleBackup = async (denops: Denops, filePath: string, cwd: string): Promise<void> => {
   if (!fs.existsSync(filePath)) return
+  if (!containsHomeDir(filePath)) return
+  if (await fn.getbufvar(denops, "%", "&modifiable") === 0) return
 
   const relativePath = gitRoot ? path.relative(gitRoot, filePath) : path.relative(cwd, filePath)
 
   await semaphore.lock(async () => {
     if (!files.has(relativePath)) {
-      await initializeFileContent(relativePath)
+      await initLastBackup(relativePath)
     }
 
     const fileContent = files.get(relativePath)
     if (!fileContent) return
 
     try {
-      const currentContent = await Deno.readTextFile(filePath)
-      if (fileContent.status === "not-backed-up" || fileContent.content !== currentContent) {
-        await performBackup(filePath, relativePath)
+      const buffer = await getBuffer(denops)
+      if (fileContent.status === "not-backed-up" || fileContent.content !== buffer) {
+        await performBackup(relativePath, buffer)
         files.set(relativePath, {
           status: "backed-up",
-          content: currentContent,
+          content: buffer,
         })
       }
     } catch (error) {
       console.error(`Failed to read the file: ${error}`)
     }
   })
+}
+
+const getBuffer = async (denops: Denops): Promise<string> => {
+  const buffer = (await fn.getline(denops, 1, "$")).join("\n")
+  return buffer
+}
+
+const containsHomeDir = (targetPath: string): boolean => {
+  const homeDir = Deno.env.get("HOME")
+  if (!homeDir) return false
+
+  const normalizedPath = path.normalize(targetPath)
+  const normalizedHome = path.normalize(homeDir)
+
+  return normalizedPath.startsWith(normalizedHome)
 }
 
 export const main = async (denops: Denops): Promise<void> => {
@@ -118,7 +132,7 @@ export const main = async (denops: Denops): Promise<void> => {
   denops.dispatcher = {
     async backup(filePath: unknown): Promise<void> {
       assert(filePath, is.String)
-      await handleBackup(filePath, cwd)
+      await handleBackup(denops, filePath, cwd)
     },
     async getBackupDir(filePath: unknown): Promise<string> {
       assert(filePath, is.String)

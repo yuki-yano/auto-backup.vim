@@ -3,6 +3,7 @@ export * as fs from "jsr:@std/fs@1.0.8";
 
 export type { Denops } from "jsr:@denops/std@7.4.0"
 export * as vars from "jsr:@denops/std@7.4.0/variable"
+export * as fn from "jsr:@denops/std@7.4.0/function"
 
 export { assert, ensure, is } from "jsr:@core/unknownutil@4.3.0"
 export { Semaphore } from "jsr:@lambdalisue/async@2.1.1";
